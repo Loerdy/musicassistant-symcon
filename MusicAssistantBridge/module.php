@@ -241,7 +241,7 @@ class MusicAssistantBridge extends IPSModule
             if ($pid === '') return;
             $data = $msg['data'] ?? [];
             $display = $data['display_name'] ?? ($data['name'] ?? $pid);
-            $this->UpdatePlayersCache($pid, $display, $data);
+            $this->EnsureAndUpdatePlayerInstance($pid, $display, $data);
             return;
         }
 
