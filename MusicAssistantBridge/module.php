@@ -87,7 +87,9 @@ class MusicAssistantBridge extends IPSModule
             ],
             'actions' => [
                 // WICHTIG: Aufruf der öffentlichen Methode mit Modulpräfix und $id
-                ['type' => 'Button', 'caption' => 'WebSocket jetzt erstellen/aktualisieren', 'onClick' => 'MABR_CreateOrUpdateIO($id);']
+                ['type' => 'Button', 'caption' => 'WebSocket jetzt erstellen/aktualisieren', 'onClick' => 'MABR_CreateOrUpdateIO($id);'],
+                ['type' => 'Button', 'caption' => 'MA Daten schnüffeln (5s)', 'onClick' => 'MABR_Probe($id, 5);'],
+                ['type' => 'Button', 'caption' => 'MA Daten schnüffeln (10s)', 'onClick' => 'MABR_Probe($id, 10);']
             ]
         ];
         return json_encode($form);
@@ -220,6 +222,101 @@ class MusicAssistantBridge extends IPSModule
         }
 
         $this->SendDebug('RECV', $raw, 0);
+    }
+
+    // Interner, einfacher WebSocket-Client zum kurzfristigen Mitschneiden von Textframes (JSON)
+    public function Probe(int $seconds = 5): void
+    {
+        $host = trim($this->ReadPropertyString('Host'));
+        $port = intval($this->ReadPropertyInteger('Port'));
+        $path = $this->ReadPropertyString('Path') ?: '/ws';
+        if ($host === '' || $port <= 0) {
+            $this->SendDebug('PROBE', 'Host/Port nicht gesetzt', 0);
+            return;
+        }
+        $errno = 0; $errstr = '';
+        $fp = @fsockopen($host, $port, $errno, $errstr, 3.0);
+        if (!$fp) {
+            $this->SendDebug('PROBE', 'fsockopen failed: '.$errstr, 0);
+            return;
+        }
+        stream_set_timeout($fp, 1);
+        $key = base64_encode(random_bytes(16));
+        $req = "GET ".$path." HTTP/1.1\r\n".
+               "Host: ".$host.":".$port."\r\n".
+               "Upgrade: websocket\r\n".
+               "Connection: Upgrade\r\n".
+               "Sec-WebSocket-Key: ".$key."\r\n".
+               "Sec-WebSocket-Version: 13\r\n\r\n";
+        fwrite($fp, $req);
+        // Read HTTP response headers
+        $hdr = '';
+        while (!feof($fp)) {
+            $line = fgets($fp);
+            if ($line === false) { break; }
+            $hdr .= $line;
+            if (rtrim($line) === '') { break; }
+        }
+        if (stripos($hdr, '101') === false) {
+            $this->SendDebug('PROBE', 'Handshake failed: '.$hdr, 0);
+            fclose($fp);
+            return;
+        }
+        $end = time() + max(1, $seconds);
+        while (time() < $end) {
+            $frame = $this->wsRecvFrame($fp);
+            if ($frame === null) { continue; }
+            if ($frame['op'] === 0x1 && $frame['payload'] !== '') { // text frame
+                $this->HandleReceive($frame['payload']);
+            }
+        }
+        fclose($fp);
+        $this->SendDebug('PROBE', 'done', 0);
+    }
+
+    private function wsReadN($fp, int $n)
+    {
+        $buf = '';
+        while (strlen($buf) < $n) {
+            $chunk = fread($fp, $n - strlen($buf));
+            if ($chunk === false || $chunk === '') { return null; }
+            $buf .= $chunk;
+        }
+        return $buf;
+    }
+
+    private function wsRecvFrame($fp): ?array
+    {
+        $h = $this->wsReadN($fp, 2);
+        if ($h === null) { return null; }
+        $b1 = ord($h[0]);
+        $b2 = ord($h[1]);
+        $fin = ($b1 & 0x80) !== 0;
+        $op  = $b1 & 0x0F;
+        $masked = ($b2 & 0x80) !== 0;
+        $len = $b2 & 0x7F;
+        if ($len === 126) {
+            $ext = $this->wsReadN($fp, 2); if ($ext === null) return null;
+            $len = (ord($ext[0]) << 8) | ord($ext[1]);
+        } elseif ($len === 127) {
+            $ext = $this->wsReadN($fp, 8); if ($ext === null) return null;
+            // 64-bit len; we cap to PHP int
+            $len = 0; for ($i=0; $i<8; $i++) { $len = ($len << 8) | ord($ext[$i]); }
+        }
+        $maskKey = '';
+        if ($masked) {
+            $maskKey = $this->wsReadN($fp, 4); if ($maskKey === null) return null;
+        }
+        $payload = $len > 0 ? $this->wsReadN($fp, $len) : '';
+        if ($payload === null) return null;
+        if ($masked && $payload !== '') {
+            $unmasked = '';
+            for ($i=0; $i<strlen($payload); $i++) {
+                $unmasked .= $payload[$i] ^ $maskKey[$i % 4];
+            }
+            $payload = $unmasked;
+        }
+        return ['fin' => $fin, 'op' => $op, 'payload' => $payload];
     }
 
     private function EnsureAndUpdatePlayerInstance(string $playerId, string $displayName, array $data): void
