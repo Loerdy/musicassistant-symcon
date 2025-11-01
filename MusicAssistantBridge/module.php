@@ -19,6 +19,7 @@ class MusicAssistantBridge extends IPSModule
         // Empfangskette per RegisterVariable unter der Bridge
         $this->RegisterAttributeInteger('RegVarID', 0);
         $this->RegisterAttributeInteger('RecvScriptID', 0);
+        $this->RegisterAttributeInteger('LinkRegVarID', 0);
         $this->RegisterAttributeString('PlayersCache', '{}');
     }
 
@@ -41,7 +42,6 @@ class MusicAssistantBridge extends IPSModule
         if ($this->ReadPropertyBoolean('AutoCreateIO')) {
             $ioID = $this->EnsureWebSocketIO();
             if ($ioID > 0) {
-                $this->EnsureIoConnection($ioID);
                 $this->EnsureReceiveChain($ioID);
                 if ($this->ReadPropertyInteger('WebSocketInstanceID') !== $ioID) {
                     IPS_SetProperty($this->InstanceID, 'WebSocketInstanceID', $ioID);
@@ -146,35 +146,23 @@ class MusicAssistantBridge extends IPSModule
         return $ioID ?? 0;
     }
 
-    private function EnsureIoConnection(int $ioID): void
-    {
-        // Bridge direkt mit IO verbinden, sodass ReceiveData aufgerufen werden kann
-        if ((@IPS_GetInstance($this->InstanceID)['ConnectionID'] ?? 0) !== $ioID) {
-            @IPS_DisconnectInstance($this->InstanceID);
-            @IPS_ConnectInstance($this->InstanceID, $ioID);
-            $this->SendDebug('IO', 'Connected Bridge to IO ID='.$ioID, 0);
-        }
-    }
-
     private function EnsureReceiveChain(int $ioID): void
     {
-        // RegisterVariable unter der Bridge anlegen und technisch mit IO verbinden
-        $rvGUID = '{3CFF0FD9-E306-41DB-9B5A-9D06D38576C3}';
+        // RegisterVariable erstellen/verbinden (IP-Symcon hängt sie i. d. R. unter das IO)
+        // GUID laut ChildRequirements des WebSocket-Clients
+        $rvGUID = '{018EF6B5-AB94-40C6-AA53-46943E824ACF}';
         $regVarID = $this->ReadAttributeInteger('RegVarID');
         if ($regVarID <= 0 || !@IPS_InstanceExists($regVarID)) {
             $regVarID = @IPS_CreateInstance($rvGUID);
             IPS_SetName($regVarID, 'MA WS RegisterVariable');
-            IPS_SetParent($regVarID, $this->InstanceID);
             $this->WriteAttributeInteger('RegVarID', $regVarID);
-        } else {
-            if (@IPS_GetParent($regVarID) !== $this->InstanceID) {
-                IPS_SetParent($regVarID, $this->InstanceID);
-            }
+            $this->SendDebug('CHAIN', 'Created RegisterVariable ID='.$regVarID, 0);
         }
         // Verbindung zum IO herstellen
         if ((@IPS_GetInstance($regVarID)['ConnectionID'] ?? 0) !== $ioID) {
             @IPS_DisconnectInstance($regVarID);
             @IPS_ConnectInstance($regVarID, $ioID);
+            $this->SendDebug('CHAIN', 'Connected RegVar '.$regVarID.' to IO '.$ioID, 0);
         }
         // Zielskript anlegen/setzen
         $scriptID = $this->ReadAttributeInteger('RecvScriptID');
@@ -185,32 +173,30 @@ class MusicAssistantBridge extends IPSModule
             IPS_SetParent($scriptID, $this->InstanceID);
             IPS_SetScriptContent($scriptID, $want);
             $this->WriteAttributeInteger('RecvScriptID', $scriptID);
+            $this->SendDebug('CHAIN', 'Created Receive script ID='.$scriptID, 0);
         } else {
             IPS_SetScriptContent($scriptID, $want);
         }
         @IPS_SetProperty($regVarID, 'VariableType', 3); // String
         @IPS_SetProperty($regVarID, 'TargetID', $scriptID);
         @IPS_ApplyChanges($regVarID);
+
+        // Sichtbarkeit unter der Bridge: Link auf die RegVar anlegen/aktualisieren
+        $linkID = $this->ReadAttributeInteger('LinkRegVarID');
+        if ($linkID <= 0 || !@IPS_LinkExists($linkID)) {
+            $linkID = IPS_CreateLink();
+            IPS_SetName($linkID, 'MA WS RegisterVariable');
+            IPS_SetParent($linkID, $this->InstanceID);
+            $this->WriteAttributeInteger('LinkRegVarID', $linkID);
+        } else {
+            if (@IPS_GetParent($linkID) !== $this->InstanceID) {
+                IPS_SetParent($linkID, $this->InstanceID);
+            }
+        }
+        @IPS_SetLinkTargetID($linkID, $regVarID);
     }
 
-    public function ReceiveData($JSONString)
-    {
-        // Erwartetes Format: {"DataID":"...","Buffer":"<text>"}
-        $data = @json_decode($JSONString, true);
-        $buf = '';
-        if (is_array($data)) {
-            $buf = $data['Buffer'] ?? '';
-        }
-        if (!is_string($buf)) {
-            $buf = '';
-        }
-        if ($buf === '') {
-            $this->SendDebug('RECV', 'Empty buffer or unexpected JSON', 0);
-            return;
-        }
-        $this->SendDebug('RECV', 'Len='.strlen($buf).' Payload='.substr($buf,0,256), 0);
-        $this->HandleReceive($buf);
-    }
+    // ReceiveData wird hier nicht genutzt; Empfang erfolgt über RegisterVariable Target-Script
 
     private function HandleReceive(string $raw): void
     {
