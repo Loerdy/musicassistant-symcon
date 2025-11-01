@@ -149,8 +149,8 @@ class MusicAssistantBridge extends IPSModule
     private function EnsureReceiveChain(int $ioID): void
     {
         // RegisterVariable erstellen/verbinden (IP-Symcon hängt sie i. d. R. unter das IO)
-        // GUID laut ChildRequirements des WebSocket-Clients
-        $rvGUID = '{018EF6B5-AB94-40C6-AA53-46943E824ACF}';
+        // Richtige GUID der RegisterVariable
+        $rvGUID = '{3CFF0FD9-E306-41DB-9B5A-9D06D38576C3}';
         $regVarID = $this->ReadAttributeInteger('RegVarID');
         if ($regVarID <= 0 || !@IPS_InstanceExists($regVarID)) {
             $regVarID = @IPS_CreateInstance($rvGUID);
