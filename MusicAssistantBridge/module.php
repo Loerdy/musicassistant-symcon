@@ -16,8 +16,7 @@ class MusicAssistantBridge extends IPSModule
         $this->RegisterPropertyInteger('PlayersRootID', 0);
 
         $this->RegisterAttributeInteger('WSInstanceID', 0);
-        $this->RegisterAttributeInteger('RegVarID', 0);
-        $this->RegisterAttributeInteger('RecvScriptID', 0);
+        // Keine RegisterVariable mehr – direkte Verbindung und ReceiveData
         $this->RegisterAttributeString('PlayersCache', '{}');
     }
 
@@ -40,7 +39,7 @@ class MusicAssistantBridge extends IPSModule
         if ($this->ReadPropertyBoolean('AutoCreateIO')) {
             $ioID = $this->EnsureWebSocketIO();
             if ($ioID > 0) {
-                $this->EnsureReceiveChain($ioID);
+                $this->EnsureIoConnection($ioID);
                 if ($this->ReadPropertyInteger('WebSocketInstanceID') !== $ioID) {
                     IPS_SetProperty($this->InstanceID, 'WebSocketInstanceID', $ioID);
                     IPS_ApplyChanges($this->InstanceID);
@@ -128,44 +127,30 @@ class MusicAssistantBridge extends IPSModule
         return $ioID ?? 0;
     }
 
-    private function EnsureReceiveChain(int $ioID): void
+    private function EnsureIoConnection(int $ioID): void
     {
-        $regVarID = $this->ReadAttributeInteger('RegVarID');
-        $rvGUID = '{3CFF0FD9-E306-41DB-9B5A-9D06D38576C3}'; // Register Variable
-
-        // Erstellen/wiederverwenden
-        if ($regVarID <= 0 || !@IPS_InstanceExists($regVarID)) {
-            $regVarID = @IPS_CreateInstance($rvGUID);
-            IPS_SetName($regVarID, 'MA WS RegisterVariable');
-            $this->WriteAttributeInteger('RegVarID', $regVarID);
+        // Bridge direkt mit IO verbinden, sodass ReceiveData aufgerufen werden kann
+        if ((@IPS_GetInstance($this->InstanceID)['ConnectionID'] ?? 0) !== $ioID) {
+            @IPS_DisconnectInstance($this->InstanceID);
+            @IPS_ConnectInstance($this->InstanceID, $ioID);
         }
+    }
 
-        // Sichtbar unterhalb der Bridge platzieren
-        if (@IPS_GetParent($regVarID) !== $this->InstanceID) {
-            IPS_SetParent($regVarID, $this->InstanceID);
+    public function ReceiveData($JSONString)
+    {
+        // Erwartetes Format: {"DataID":"...","Buffer":"<text>"}
+        $data = @json_decode($JSONString, true);
+        $buf = '';
+        if (is_array($data)) {
+            $buf = $data['Buffer'] ?? '';
         }
-
-        // Verbindung zur IO setzen
-        if ((@IPS_GetInstance($regVarID)['ConnectionID'] ?? 0) !== $ioID) {
-            @IPS_DisconnectInstance($regVarID);
-            @IPS_ConnectInstance($regVarID, $ioID);
+        if (!is_string($buf)) {
+            $buf = '';
         }
-
-        // Typ & Target setzen
-        @IPS_SetProperty($regVarID, 'VariableType', 3); // String
-        $scriptID = $this->ReadAttributeInteger('RecvScriptID');
-        $want = '<?php IPS_RequestAction(' . $this->InstanceID . ', "OnReceive", $_IPS["VALUE"]);';
-        if ($scriptID <= 0 || !@IPS_ScriptExists($scriptID)) {
-            $scriptID = IPS_CreateScript(0);
-            IPS_SetName($scriptID, 'MA Bridge Receive');
-            IPS_SetParent($scriptID, $this->InstanceID);
-            IPS_SetScriptContent($scriptID, $want);
-            $this->WriteAttributeInteger('RecvScriptID', $scriptID);
-        } else {
-            IPS_SetScriptContent($scriptID, $want);
+        if ($buf === '') {
+            return;
         }
-        @IPS_SetProperty($regVarID, 'TargetID', $scriptID);
-        @IPS_ApplyChanges($regVarID);
+        $this->HandleReceive($buf);
     }
 
     private function HandleReceive(string $raw): void
@@ -254,12 +239,10 @@ class MusicAssistantBridge extends IPSModule
             return;
         }
         // IO sicherstellen/aktualisieren (ohne den AutoCreate-Property-Trick)
-        IPS_SetProperty($this->InstanceID, 'AutoCreateIO', true);
-        IPS_ApplyChanges($this->InstanceID);
-
+        // IO sicherstellen/aktualisieren
         $ioID = $this->EnsureWebSocketIO();
         if ($ioID > 0) {
-            $this->EnsureReceiveChain($ioID);
+            $this->EnsureIoConnection($ioID);
             if ($this->ReadPropertyInteger('WebSocketInstanceID') !== $ioID) {
                 IPS_SetProperty($this->InstanceID, 'WebSocketInstanceID', $ioID);
                 IPS_ApplyChanges($this->InstanceID);
