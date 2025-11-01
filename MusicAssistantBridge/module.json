@@ -1,0 +1,11 @@
+{
+  "id": "{C3E33C98-6B1B-4C63-9C7E-9E16A35C0D3F}",
+  "name": "MusicAssistantBridge",
+  "type": 3,
+  "vendor": "MusicAssistant",
+  "aliases": ["MusicAssistant Bridge"],
+  "parentRequirements": [],
+  "childRequirements": [],
+  "implemented": [],
+  "prefix": "MABR"
+}

@@ -1,0 +1,11 @@
+{
+  "id": "{7E1B7E6E-5C1C-4E8B-9C41-3D7C8B0D2E11}",
+  "name": "MusicAssistantPlayer",
+  "type": 3,
+  "vendor": "MusicAssistant",
+  "aliases": ["MusicAssistant Player"],
+  "parentRequirements": [],
+  "childRequirements": [],
+  "implemented": [],
+  "prefix": "MAPL"
+}
