@@ -8,7 +8,7 @@ class MusicAssistantBridge extends IPSModule
     {
         parent::Create();
         $this->RegisterPropertyString('Host', '');
-        $this->RegisterPropertyInteger('Port', 0);
+        $this->RegisterPropertyInteger('Port', 8095);
         $this->RegisterPropertyString('Path', '/ws');
         // Standard: IO NICHT automatisch erzeugen, erst nach Bestätigung im Konfig-Formular
         $this->RegisterPropertyBoolean('AutoCreateIO', false);
