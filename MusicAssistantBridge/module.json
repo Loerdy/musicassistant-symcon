@@ -4,7 +4,7 @@
   "type": 3,
   "vendor": "MusicAssistant",
   "aliases": ["MusicAssistant Bridge"],
-  "parentRequirements": [],
+  "parentRequirements": ["{D68FD31F-0E90-7019-F16C-1949BD3079EF}"],
   "childRequirements": [],
   "implemented": [],
   "prefix": "MABR"
