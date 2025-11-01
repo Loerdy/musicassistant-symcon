@@ -1,0 +1,11 @@
+{
+  "id": "{A3C9E3E5-8E9E-4C3F-9E3B-2B67E2E4B4C1}",
+  "name": "MusicAssistantConfigurator",
+  "type": 4,
+  "vendor": "MusicAssistant",
+  "aliases": ["MusicAssistant Configurator"],
+  "parentRequirements": [],
+  "childRequirements": [],
+  "implemented": [],
+  "prefix": "MACF"
+}

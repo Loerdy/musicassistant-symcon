@@ -18,6 +18,7 @@ class MusicAssistantBridge extends IPSModule
         $this->RegisterAttributeInteger('WSInstanceID', 0);
         $this->RegisterAttributeInteger('RegVarID', 0);
         $this->RegisterAttributeInteger('RecvScriptID', 0);
+        $this->RegisterAttributeString('PlayersCache', '{}');
     }
 
     public function ApplyChanges()
@@ -132,30 +133,26 @@ class MusicAssistantBridge extends IPSModule
         $regVarID = $this->ReadAttributeInteger('RegVarID');
         $rvGUID = '{3CFF0FD9-E306-41DB-9B5A-9D06D38576C3}'; // Register Variable
 
-        // Falls keine bekannte RegVar gespeichert ist, versuche vorhandene unterhalb des IO zu finden
-        if ($regVarID <= 0) {
-            foreach (IPS_GetChildrenIDs($ioID) as $child) {
-                $inst = @IPS_GetInstance($child);
-                if ($inst && ($inst['ModuleInfo']['ModuleID'] ?? '') === $rvGUID) {
-                    $regVarID = $child;
-                    break;
-                }
-            }
-        }
-
-        if ($regVarID <= 0) {
+        // RegVar erstellen oder wiederverwenden
+        if ($regVarID <= 0 || !@IPS_InstanceExists($regVarID)) {
             $regVarID = @IPS_CreateInstance($rvGUID);
             IPS_SetName($regVarID, 'MA WS RegisterVariable');
+            $this->WriteAttributeInteger('RegVarID', $regVarID);
         }
 
-        // Sicherstellen, dass die RegVar unter dem IO hängt und korrekt konfiguriert ist
-        if (@IPS_GetParent($regVarID) !== $ioID) {
-            IPS_SetParent($regVarID, $ioID);
+        // Sichtbar unterhalb der Bridge platzieren
+        if (@IPS_GetParent($regVarID) !== $this->InstanceID) {
+            IPS_SetParent($regVarID, $this->InstanceID);
         }
+
+        // Verbindung (Übergeordnete Instanz) auf den WebSocket setzen
+        if ((@IPS_GetInstance($regVarID)['ConnectionID'] ?? 0) !== $ioID) {
+            @IPS_DisconnectInstance($regVarID);
+            @IPS_ConnectInstance($regVarID, $ioID);
+        }
+
+        // Typ & Target setzen
         @IPS_SetProperty($regVarID, 'VariableType', 3); // String
-        @IPS_ApplyChanges($regVarID);
-        $this->WriteAttributeInteger('RegVarID', $regVarID);
-
         $scriptID = $this->ReadAttributeInteger('RecvScriptID');
         $want = '<?php IPS_RequestAction(' . $this->InstanceID . ', "OnReceive", $_IPS["VALUE"]);';
         if ($scriptID <= 0 || !@IPS_ScriptExists($scriptID)) {
@@ -188,7 +185,7 @@ class MusicAssistantBridge extends IPSModule
             if ($pid === '') return;
             $data = $msg['data'] ?? [];
             $display = $data['display_name'] ?? ($data['name'] ?? $pid);
-            $this->EnsureAndUpdatePlayerInstance($pid, $display, $data);
+            $this->UpdatePlayersCache($pid, $display, $data);
             return;
         }
 
