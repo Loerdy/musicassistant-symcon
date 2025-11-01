@@ -133,7 +133,7 @@ class MusicAssistantBridge extends IPSModule
         $regVarID = $this->ReadAttributeInteger('RegVarID');
         $rvGUID = '{3CFF0FD9-E306-41DB-9B5A-9D06D38576C3}'; // Register Variable
 
-        // RegVar erstellen oder wiederverwenden
+        // Erstellen/wiederverwenden
         if ($regVarID <= 0 || !@IPS_InstanceExists($regVarID)) {
             $regVarID = @IPS_CreateInstance($rvGUID);
             IPS_SetName($regVarID, 'MA WS RegisterVariable');
@@ -145,7 +145,7 @@ class MusicAssistantBridge extends IPSModule
             IPS_SetParent($regVarID, $this->InstanceID);
         }
 
-        // Verbindung (Übergeordnete Instanz) auf den WebSocket setzen
+        // Verbindung zur IO setzen
         if ((@IPS_GetInstance($regVarID)['ConnectionID'] ?? 0) !== $ioID) {
             @IPS_DisconnectInstance($regVarID);
             @IPS_ConnectInstance($regVarID, $ioID);
