@@ -7,10 +7,11 @@ class MusicAssistantBridge extends IPSModule
     public function Create()
     {
         parent::Create();
-        $this->RegisterPropertyString('Host', '192.168.29.17');
-        $this->RegisterPropertyInteger('Port', 8095);
+        $this->RegisterPropertyString('Host', '');
+        $this->RegisterPropertyInteger('Port', 0);
         $this->RegisterPropertyString('Path', '/ws');
-        $this->RegisterPropertyBoolean('AutoCreateIO', true);
+        // Standard: IO NICHT automatisch erzeugen, erst nach Bestätigung im Konfig-Formular
+        $this->RegisterPropertyBoolean('AutoCreateIO', false);
         $this->RegisterPropertyInteger('WebSocketInstanceID', 0);
         $this->RegisterPropertyInteger('PlayersRootID', 0);
 
@@ -34,12 +35,15 @@ class MusicAssistantBridge extends IPSModule
             }
         }
 
-        $ioID = $this->EnsureWebSocketIO();
-        if ($ioID > 0) {
-            $this->EnsureReceiveChain($ioID);
-            if ($this->ReadPropertyInteger('WebSocketInstanceID') !== $ioID) {
-                IPS_SetProperty($this->InstanceID, 'WebSocketInstanceID', $ioID);
-                IPS_ApplyChanges($this->InstanceID);
+        // Nur automatisch IO erzeugen, wenn explizit gewünscht
+        if ($this->ReadPropertyBoolean('AutoCreateIO')) {
+            $ioID = $this->EnsureWebSocketIO();
+            if ($ioID > 0) {
+                $this->EnsureReceiveChain($ioID);
+                if ($this->ReadPropertyInteger('WebSocketInstanceID') !== $ioID) {
+                    IPS_SetProperty($this->InstanceID, 'WebSocketInstanceID', $ioID);
+                    IPS_ApplyChanges($this->InstanceID);
+                }
             }
         }
     }
@@ -51,6 +55,38 @@ class MusicAssistantBridge extends IPSModule
             return;
         }
         throw new Exception('Invalid Ident: ' . $Ident);
+    }
+
+    public function GetConfigurationForm()
+    {
+        $host = $this->ReadPropertyString('Host');
+        $port = $this->ReadPropertyInteger('Port');
+        $path = $this->ReadPropertyString('Path');
+        $ioID = $this->ReadAttributeInteger('WSInstanceID');
+
+        $statusText = 'WebSocket: nicht erstellt';
+        if ($ioID > 0) {
+            $statusText = 'WebSocket ID ' . $ioID;
+        }
+        $url = '';
+        if (!empty($host) && $port > 0) {
+            $url = sprintf('ws://%s:%d%s', $host, $port, $path);
+        }
+
+        $form = [
+            'elements' => [
+                ['type' => 'ValidationTextBox', 'name' => 'Host', 'caption' => 'Host', 'value' => $host],
+                ['type' => 'NumberSpinner', 'name' => 'Port', 'caption' => 'Port', 'minimum' => 1, 'maximum' => 65535, 'value' => $port],
+                ['type' => 'ValidationTextBox', 'name' => 'Path', 'caption' => 'Path', 'value' => $path],
+                ['type' => 'CheckBox', 'name' => 'AutoCreateIO', 'caption' => 'WebSocket automatisch erstellen/aktualisieren', 'value' => $this->ReadPropertyBoolean('AutoCreateIO')],
+                ['type' => 'Label', 'caption' => 'Geplante URL: ' . ($url ?: '(bitte Host/Port angeben)')],
+                ['type' => 'Label', 'caption' => 'Status: ' . $statusText]
+            ],
+            'actions' => [
+                ['type' => 'Button', 'caption' => 'WebSocket jetzt erstellen/aktualisieren', 'onClick' => 'CreateOrUpdateIO']
+            ]
+        ];
+        return json_encode($form);
     }
 
     private function EnsureWebSocketIO(): int
@@ -185,6 +221,34 @@ class MusicAssistantBridge extends IPSModule
             }
             if ($idGVol && array_key_exists('group_volume', $data)) {
                 @SetValueInteger($idGVol, intval($data['group_volume']));
+            }
+        }
+    }
+
+    // Manuell aus dem Konfig-Formular aufrufbar
+    public function CreateOrUpdateIO(): void
+    {
+        // Plausibilitätsprüfung der Properties
+        $host = trim($this->ReadPropertyString('Host'));
+        $port = intval($this->ReadPropertyInteger('Port'));
+        if ($host === '' || $port <= 0) {
+            $this->SendDebug('ERROR', 'Bitte Host und Port konfigurieren, dann erneut versuchen.', 0);
+            return;
+        }
+        $ioID = $this->ReadAttributeInteger('WSInstanceID');
+        if ($ioID <= 0) {
+            // Temporär AutoCreateIO aktivieren, um EnsureWebSocketIO zu verwenden
+            IPS_SetProperty($this->InstanceID, 'AutoCreateIO', true);
+            IPS_ApplyChanges($this->InstanceID);
+        } else {
+            // IO existiert -> nur aktualisieren und Kette sicherstellen
+            $ioID = $this->EnsureWebSocketIO();
+            if ($ioID > 0) {
+                $this->EnsureReceiveChain($ioID);
+                if ($this->ReadPropertyInteger('WebSocketInstanceID') !== $ioID) {
+                    IPS_SetProperty($this->InstanceID, 'WebSocketInstanceID', $ioID);
+                    IPS_ApplyChanges($this->InstanceID);
+                }
             }
         }
     }
