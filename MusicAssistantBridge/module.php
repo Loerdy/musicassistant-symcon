@@ -83,7 +83,8 @@ class MusicAssistantBridge extends IPSModule
                 ['type' => 'Label', 'caption' => 'Status: ' . $statusText]
             ],
             'actions' => [
-                ['type' => 'Button', 'caption' => 'WebSocket jetzt erstellen/aktualisieren', 'onClick' => 'CreateOrUpdateIO']
+                // WICHTIG: Aufruf der öffentlichen Methode mit Modulpräfix und $id
+                ['type' => 'Button', 'caption' => 'WebSocket jetzt erstellen/aktualisieren', 'onClick' => 'MABR_CreateOrUpdateIO($id);']
             ]
         ];
         return json_encode($form);
